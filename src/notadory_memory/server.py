@@ -18,6 +18,18 @@ service = MemoryService(MemoryStorage())
 server = MCPServer(name="notadory-memory", version="1.0.0")
 
 
+@server.tool(name="create_concept", description="Create a durable global or project concept.", structured_output=True)
+def create_concept(
+    concept_id: str,
+    label: str,
+    aliases: list[str],
+    action_terms: list[str],
+    object_terms: list[str],
+    scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return service.create_concept(concept_id, label, aliases, action_terms, object_terms, scope)
+
+
 @server.tool(name="create_memory", description="Create, deduplicate, or revise a memory.", structured_output=True)
 def create_memory(
     scope: dict[str, Any],

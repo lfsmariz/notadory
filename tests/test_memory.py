@@ -74,6 +74,67 @@ def test_aliases_and_action_object_forms(tmp_path):
     assert service.lexicon.match("VALIDAR a ENTRADA") == ["validation"]
 
 
+def test_project_override_preserves_global_vocabulary(tmp_path):
+    service = setup_service(tmp_path)
+    service.create_concept(
+        "validation", "Project validation", ["checagem da entrada"], ["checar"], ["entrada"],
+        {"type": "project", "project_id": "alpha"},
+    )
+    concept = next(item for item in service.lexicon.concepts("alpha") if item["id"] == "validation")
+    assert set(concept["aliases"]) == {"valide a entrada", "validar o payload", "checagem da entrada"}
+
+
+def test_create_concept_global_and_preserves_existing_lexicon(tmp_path):
+    service = setup_service(tmp_path)
+    result = service.create_concept(
+        "operation.input_validation", "Input validation", [" validate payload ", "validate payload"],
+        ["validate"], ["payload"],
+    )
+    assert result["status"] == "created"
+    assert result["concept"]["aliases"] == ["validate payload"]
+    assert {item["id"] for item in service.lexicon.concepts()} == {"validation", "deploy", "operation.input_validation"}
+
+    duplicate = service.create_concept(
+        "operation.input_validation", "Input validation", ["validate payload"], ["validate"], ["payload"],
+    )
+    assert duplicate["status"] == "deduplicated"
+    with pytest.raises(ValueError, match="different content"):
+        service.create_concept(
+            "operation.input_validation", "Other", ["validate payload"], ["validate"], ["payload"],
+        )
+
+
+def test_create_concept_override_is_used_by_memory_and_retrieval(tmp_path):
+    service = setup_service(tmp_path)
+    service.create_concept(
+        "project.release", "Project release", ["ship the app"], ["ship"], ["app"],
+        {"type": "project", "project_id": "alpha"},
+    )
+    service.create(memory(
+        scope={"type": "project", "project_id": "alpha"}, id="mem-release",
+        title="Release", summary="Ship the app", content="Release procedure.",
+        concept_ids=["project.release"],
+    ))
+    result = service.retrieve({
+        "scope": {"type": "project", "project_id": "alpha"},
+        "query": "ship the app", "conversation_key": "release",
+    })
+    assert [item["id"] for item in result["memories"]] == ["mem-release"]
+
+
+def test_create_concept_validation_and_scope_path_safety(tmp_path):
+    service = setup_service(tmp_path)
+    for concept_id in ("../escape", "Operation.Input", "a..b"):
+        with pytest.raises(ValueError):
+            service.create_concept(concept_id, "Label", ["alias"], ["action"], ["object"])
+    with pytest.raises(ValueError):
+        service.create_concept("safe.id", " ", ["alias"], ["action"], ["object"])
+    with pytest.raises(ValueError):
+        service.create_concept("safe.id", "Label", [""], ["action"], ["object"])
+    with pytest.raises(ValueError):
+        service.create_concept("safe.id", "Label", ["alias"], ["action"], ["object"], {"type": "project", "project_id": "../x"})
+
+
 def test_retrieve_cache_revision_force_and_excludes_tier_five(tmp_path):
     service = setup_service(tmp_path)
     service.create(memory(id="mem-one"))

@@ -53,6 +53,17 @@ class MemoryService:
     def init(self) -> None:
         self.storage.init()
 
+    def create_concept(
+        self,
+        concept_id: str,
+        label: str,
+        aliases: list[str],
+        action_terms: list[str],
+        object_terms: list[str],
+        scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.lexicon.create_concept(concept_id, label, aliases, action_terms, object_terms, scope)
+
     @staticmethod
     def _check_scope(scope: Any) -> tuple[str, str | None]:
         return validate_scope(scope)

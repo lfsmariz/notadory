@@ -8,7 +8,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any
 
-from .storage import safe_segment
+from .storage import atomic_write, safe_segment, validate_scope
 
 STOP_WORDS = {
     "a", "o", "os", "as", "um", "uma", "uns", "umas", "de", "do", "da", "dos", "das",
@@ -39,9 +39,96 @@ def _items(data: Any) -> list[dict[str, Any]]:
     return [item for item in values if isinstance(item, dict) and isinstance(item.get("id"), str)]
 
 
+CONCEPT_ID = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+
+
+def _concept_string_list(value: Any, field: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field} must be a non-empty array of strings")
+    normalized: dict[str, str] = {}
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"{field} must contain non-empty strings")
+        item = re.sub(r"\s+", " ", item.strip())
+        normalized.setdefault(item.casefold(), item)
+    return [normalized[key] for key in sorted(normalized)]
+
+
+def normalize_concept(
+    concept_id: Any,
+    label: Any,
+    aliases: Any,
+    action_terms: Any,
+    object_terms: Any,
+) -> dict[str, Any]:
+    if not isinstance(concept_id, str) or not CONCEPT_ID.fullmatch(concept_id):
+        raise ValueError("concept_id must be a canonical safe identifier")
+    if not isinstance(label, str) or not label.strip():
+        raise ValueError("label must be a non-empty string")
+    return {
+        "id": concept_id,
+        "label": re.sub(r"\s+", " ", label.strip()),
+        "aliases": _concept_string_list(aliases, "aliases"),
+        "action_terms": _concept_string_list(action_terms, "action_terms"),
+        "object_terms": _concept_string_list(object_terms, "object_terms"),
+    }
+
+
 class Lexicon:
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
+
+    def create_concept(
+        self,
+        concept_id: Any,
+        label: Any,
+        aliases: Any,
+        action_terms: Any,
+        object_terms: Any,
+        scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        concept = normalize_concept(concept_id, label, aliases, action_terms, object_terms)
+        kind, project = validate_scope({"type": "global"} if scope is None else scope)
+        path = self.root / "lexicon" / "concepts.json"
+        if kind == "project":
+            path = self.root / "lexicon" / "project-overrides" / f"{safe_segment(project, 'project_id')}.json"
+
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            raw = {"concepts": []}
+        except (OSError, json.JSONDecodeError, TypeError) as exc:
+            raise ValueError("concept lexicon is not valid JSON") from exc
+
+        if isinstance(raw, dict):
+            concepts = raw.get("concepts", [])
+            if not isinstance(concepts, list):
+                raise ValueError("concept lexicon concepts must be an array")
+            document = dict(raw)
+        elif isinstance(raw, list):
+            concepts = raw
+            document = {"concepts": concepts}
+        else:
+            raise ValueError("concept lexicon must be an object")
+
+        for existing in concepts:
+            if not isinstance(existing, dict) or existing.get("id") != concept_id:
+                continue
+            try:
+                existing_content = normalize_concept(
+                    existing.get("id"), existing.get("label"), existing.get("aliases"),
+                    existing.get("action_terms"), existing.get("object_terms"),
+                )
+            except ValueError:
+                existing_content = None
+            if existing_content == concept:
+                return {"status": "deduplicated", "concept": existing}
+            raise ValueError(f"concept_id already exists with different content: {concept_id}")
+
+        concepts.append(concept)
+        document["concepts"] = concepts
+        atomic_write(path, json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+        return {"status": "created", "concept": concept}
 
     def concepts(self, project_id: str | None = None) -> list[dict[str, Any]]:
         path = self.root / "lexicon" / "concepts.json"
@@ -62,10 +149,11 @@ class Lexicon:
                 merged[item["id"]] = dict(item)
                 continue
             old = merged[item["id"]]
+            previous_lists = {field: list(old.get(field) or []) for field in ("aliases", "action_terms", "object_terms")}
             old.update(item)
             for field in ("aliases", "action_terms", "object_terms"):
                 if field in item or field in old:
-                    old[field] = list(dict.fromkeys([*(old.get(field) or []), *(item.get(field) or [])]))
+                    old[field] = list(dict.fromkeys([*previous_lists[field], *(item.get(field) or [])]))
         return list(merged.values())
 
     def validate(self, concept_ids: list[str], project_id: str | None = None) -> None:

@@ -37,13 +37,22 @@ Exemplo curto de configuração em um host MCP:
 ```
 
 O host deve iniciar esse comando como processo stdio (não redirecione logs
-para stdout). As seis ferramentas são `create_memory`, `list_memories`,
-`get_memory`, `load_memory`, `retrieve_context` e `reindex_archive`.
+para stdout). As sete ferramentas são `create_concept`, `create_memory`,
+`list_memories`, `get_memory`, `load_memory`, `retrieve_context` e
+`reindex_archive`.
 
 Escopos são objetos: `{"type":"global"}` ou
 `{"type":"project","project_id":"meu-projeto"}`. Conceitos ficam em
 `lexicon/concepts.json`; overrides opcionais ficam em
 `lexicon/project-overrides/<project>.json`.
+
+`create_concept(concept_id, label, aliases, action_terms, object_terms, scope)`
+cria um conceito durável. Sem `scope`, ou com `{"type":"global"}`, ele é
+global; com `{"type":"project","project_id":"meu-projeto"}`, fica no
+override desse projeto. O host/agente deve criar conceitos apenas quando
+precisar representar vocabulário durável. Não crie um alias para uma
+preferência ou tecnologia específica de um projeto quando isso deve ser uma
+memória.
 
 ## Instrução para o host
 
