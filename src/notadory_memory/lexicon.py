@@ -117,17 +117,15 @@ class Lexicon:
             concept[field] = existing
         return changed
 
-    def append_concept_terms(
-        self,
+    @staticmethod
+    def _append_request(
         concept_id: Any,
-        aliases: Any = None,
-        action_terms: Any = None,
-        object_terms: Any = None,
-        scope: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
+        aliases: Any,
+        action_terms: Any,
+        object_terms: Any,
+    ) -> dict[str, list[str]]:
         if not isinstance(concept_id, str) or not CONCEPT_ID.fullmatch(concept_id):
             raise ValueError("concept_id must be a canonical safe identifier")
-
         provided = {
             field: _concept_string_list(value, field)
             for field, value in (
@@ -139,54 +137,75 @@ class Lexicon:
         }
         if not provided:
             raise ValueError("at least one non-empty term list is required")
+        return provided
 
-        kind, project = validate_scope({"type": "global"} if scope is None else scope)
-        global_path = self.root / "lexicon" / "concepts.json"
-        if kind == "global":
-            document, concepts = self._read_document(global_path)
-            target = next(
-                (item for item in concepts if isinstance(item, dict) and item.get("id") == concept_id),
-                None,
-            )
-            if target is None:
-                raise ValueError(f"concept_id does not exist: {concept_id}")
-            changed = self._append_terms(target, provided)
-            if changed:
-                document["concepts"] = concepts
-                atomic_write(global_path, json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-            return {"status": "updated" if changed else "deduplicated", "concept": target}
-
-        override_path = self.root / "lexicon" / "project-overrides" / f"{safe_segment(project, 'project_id')}.json"
-        self._read_document(global_path)
-        override_document, override_concepts = self._read_document(override_path)
-        effective = next(
-            (item for item in self.concepts(project) if item.get("id") == concept_id),
+    @staticmethod
+    def _find_concept(concepts: list[Any], concept_id: str) -> dict[str, Any] | None:
+        return next(
+            (item for item in concepts if isinstance(item, dict) and item.get("id") == concept_id),
             None,
         )
-        if effective is None:
+
+    def _append_global_terms(
+        self,
+        concept_id: str,
+        additions: dict[str, list[str]],
+    ) -> dict[str, Any]:
+        path = self.root / "lexicon" / "concepts.json"
+        document, concepts = self._read_document(path)
+        target = self._find_concept(concepts, concept_id)
+        if target is None:
+            raise ValueError(f"concept_id does not exist: {concept_id}")
+        changed = self._append_terms(target, additions)
+        if changed:
+            document["concepts"] = concepts
+            self._write_document(path, document)
+        return {"status": "updated" if changed else "deduplicated", "concept": target}
+
+    def _append_project_terms(
+        self,
+        concept_id: str,
+        additions: dict[str, list[str]],
+        project: str,
+    ) -> dict[str, Any]:
+        global_path = self.root / "lexicon" / "concepts.json"
+        self._read_document(global_path)
+        path = self.root / "lexicon" / "project-overrides" / f"{safe_segment(project, 'project_id')}.json"
+        document, concepts = self._read_document(path)
+        if self._find_concept(self.concepts(project), concept_id) is None:
             raise ValueError(f"concept_id does not exist: {concept_id}")
 
-        target = next(
-            (item for item in override_concepts if isinstance(item, dict) and item.get("id") == concept_id),
-            None,
-        )
+        target = self._find_concept(concepts, concept_id)
         if target is None:
-            target = {"id": concept_id}
-            target.update({field: list(terms) for field, terms in provided.items()})
-            override_concepts.append(target)
-            override_document["concepts"] = override_concepts
-            atomic_write(override_path, json.dumps(override_document, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            target = {"id": concept_id, **{field: list(terms) for field, terms in additions.items()}}
+            concepts.append(target)
             changed = True
         else:
-            changed = self._append_terms(target, provided)
-            if changed:
-                override_document["concepts"] = override_concepts
-                atomic_write(override_path, json.dumps(override_document, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+            changed = self._append_terms(target, additions)
+        if changed:
+            document["concepts"] = concepts
+            self._write_document(path, document)
 
-        updated_effective = next(
-            item for item in self.concepts(project) if item.get("id") == concept_id
-        )
+        updated_effective = self._find_concept(self.concepts(project), concept_id)
         return {"status": "updated" if changed else "deduplicated", "concept": updated_effective}
+
+    @staticmethod
+    def _write_document(path: Path, document: dict[str, Any]) -> None:
+        atomic_write(path, json.dumps(document, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
+
+    def append_concept_terms(
+        self,
+        concept_id: Any,
+        aliases: Any = None,
+        action_terms: Any = None,
+        object_terms: Any = None,
+        scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        provided = self._append_request(concept_id, aliases, action_terms, object_terms)
+        kind, project = validate_scope({"type": "global"} if scope is None else scope)
+        if kind == "global":
+            return self._append_global_terms(concept_id, provided)
+        return self._append_project_terms(concept_id, provided, project)
 
     def create_concept(
         self,

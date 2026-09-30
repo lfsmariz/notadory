@@ -5,7 +5,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import re
 import time
 import uuid
 from datetime import datetime, timezone
@@ -78,22 +77,37 @@ class MemoryService:
     def _check_scope(scope: Any) -> tuple[str, str | None]:
         return validate_scope(scope)
 
-    def create(self, data: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(data, dict):
-            raise ValueError("memory must be an object")
-        kind, project = self._check_scope(data.get("scope"))
+    @staticmethod
+    def _validate_required_fields(data: dict[str, Any]) -> None:
         required = ("title", "summary", "content", "concept_ids", "context", "tier", "status", "provenance")
         if any(field not in data for field in required):
             raise ValueError("missing required memory fields")
-        if not isinstance(data["title"], str) or not data["title"].strip() or not isinstance(data["summary"], str) or not data["summary"].strip():
+
+    @staticmethod
+    def _validate_text_fields(data: dict[str, Any]) -> None:
+        if (
+            not isinstance(data["title"], str)
+            or not data["title"].strip()
+            or not isinstance(data["summary"], str)
+            or not data["summary"].strip()
+        ):
             raise ValueError("title and summary are required strings")
         if not isinstance(data["content"], str):
             raise ValueError("content must be a string")
+
+    @staticmethod
+    def _validate_collections(data: dict[str, Any]) -> None:
         concepts = data["concept_ids"]
         if not isinstance(concepts, list) or any(not isinstance(item, str) for item in concepts):
             raise ValueError("concept_ids must be strings")
-        if not isinstance(data["context"], dict) or any(not isinstance(k, str) or not isinstance(v, str) for k, v in data["context"].items()):
+        context = data["context"]
+        if not isinstance(context, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str) for key, value in context.items()
+        ):
             raise ValueError("context must be a string map")
+
+    @staticmethod
+    def _validate_metadata(data: dict[str, Any]) -> None:
         if isinstance(data["tier"], bool) or not isinstance(data["tier"], int) or not 1 <= data["tier"] <= 5:
             raise ValueError("tier must be an integer from 1 to 5")
         if data["status"] not in {"active", "archived", "superseded"}:
@@ -101,15 +115,33 @@ class MemoryService:
         provenance = data["provenance"]
         if not isinstance(provenance, dict) or not isinstance(provenance.get("kind"), str) or not provenance["kind"]:
             raise ValueError("provenance.kind is required")
-        self.lexicon.validate(concepts, project)
+
+    def _validate_create_input(self, data: Any) -> tuple[str, str | None]:
+        if not isinstance(data, dict):
+            raise ValueError("memory must be an object")
+        kind, project = self._check_scope(data.get("scope"))
+        self._validate_required_fields(data)
+        self._validate_text_fields(data)
+        self._validate_collections(data)
+        self._validate_metadata(data)
+        self.lexicon.validate(data["concept_ids"], project)
+        return kind, project
+
+    @staticmethod
+    def _validate_timestamps(data: dict[str, Any]) -> None:
+        for field in ("created_at", "updated_at"):
+            if field not in data:
+                continue
+            try:
+                datetime.fromisoformat(str(data[field]).replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError("timestamps must be ISO dates") from exc
+
+    def create(self, data: dict[str, Any]) -> dict[str, Any]:
+        kind, project = self._validate_create_input(data)
         memory_id = data.get("id") or f"mem-{uuid.uuid4().hex[:24]}"
         validate_memory_id(memory_id)
-        for field in ("created_at", "updated_at"):
-            if field in data:
-                try:
-                    datetime.fromisoformat(str(data[field]).replace("Z", "+00:00"))
-                except ValueError as exc:
-                    raise ValueError("timestamps must be ISO dates") from exc
+        self._validate_timestamps(data)
         scope = {"type": kind} if kind == "global" else {"type": "project", "project_id": project}
         normalized = normalize_content(data["content"])
         digest = content_hash(normalized)
@@ -135,24 +167,42 @@ class MemoryService:
         self.storage.write(memory)
         return {"status": "updated" if existing else "created", "memory": _summary(memory)}
 
-    def list(self, args: dict[str, Any]) -> dict[str, Any]:
+    def _list_options(self, args: dict[str, Any]) -> tuple[str, str | None, int, list[int]]:
         kind, project = self._check_scope(args.get("scope"))
         limit = args.get("limit", 10)
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be positive")
-        limit = min(limit, MAX_LIST_LIMIT)
         tiers = args.get("tiers")
         if tiers is None:
             tiers = [1, 2, 3, 4]
-        if not isinstance(tiers, list) or any(isinstance(tier, bool) or not isinstance(tier, int) or not 1 <= tier <= 5 for tier in tiers):
+        if not isinstance(tiers, list) or any(
+            isinstance(tier, bool) or not isinstance(tier, int) or not 1 <= tier <= 5 for tier in tiers
+        ):
             raise ValueError("tiers must contain integers from 1 to 5")
-        items = self.storage.all_for({"type": kind} if kind == "global" else {"type": "project", "project_id": project})
-        query = args.get("query")
+        return kind, project, min(limit, MAX_LIST_LIMIT), tiers
+
+    def _filter_list_items(
+        self,
+        items: list[dict[str, Any]],
+        query: Any,
+        project: str | None,
+        tiers: list[int],
+    ) -> list[dict[str, Any]]:
         if query:
             concepts = set(self.lexicon.match(query, project))
             query_normalized = normalize_term(query)
-            items = [item for item in items if concepts.intersection(item.get("concept_ids", [])) or query_normalized in normalize_term(f"{item.get('title', '')} {item.get('summary', '')}")]
-        items = [item for item in items if item.get("tier") in tiers]
+            items = [
+                item
+                for item in items
+                if concepts.intersection(item.get("concept_ids", []))
+                or query_normalized in normalize_term(f"{item.get('title', '')} {item.get('summary', '')}")
+            ]
+        return [item for item in items if item.get("tier") in tiers]
+
+    def list(self, args: dict[str, Any]) -> dict[str, Any]:
+        kind, project, limit, tiers = self._list_options(args)
+        items = self.storage.all_for({"type": kind} if kind == "global" else {"type": "project", "project_id": project})
+        items = self._filter_list_items(items, args.get("query"), project, tiers)
         items.sort(key=lambda item: (str(item.get("created_at", "")), str(item.get("id", ""))))
         offset = _cursor_decode(args.get("cursor"))
         page = items[offset : offset + limit]
@@ -184,22 +234,33 @@ class MemoryService:
         digest = hashlib.sha256(identity.encode()).hexdigest()
         return root / "cache" / "conversations" / f"{digest}.json"
 
-    def retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
+    def _retrieve_options(
+        self,
+        args: dict[str, Any],
+    ) -> tuple[str, str | None, str, str | None, dict[str, str], int, int | float]:
         kind, project = self._check_scope(args.get("scope"))
         conversation = args.get("conversation_key")
         query = args.get("query")
         context = args.get("context") or {}
-        if not isinstance(conversation, str) or not conversation or not isinstance(context, dict) or any(not isinstance(key, str) or not isinstance(value, str) for key, value in context.items()) or (not isinstance(query, str) or not query.strip()) and not context:
+        if (
+            not isinstance(conversation, str)
+            or not conversation
+            or not isinstance(context, dict)
+            or any(not isinstance(key, str) or not isinstance(value, str) for key, value in context.items())
+            or (not isinstance(query, str) or not query.strip())
+            and not context
+        ):
             raise ValueError("conversation_key and query/context are required")
         limit = args.get("limit", 8)
         if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
             raise ValueError("limit must be positive")
-        limit = min(limit, MAX_RETRIEVE_LIMIT)
         ttl = args.get("ttl_seconds", 86400)
         if isinstance(ttl, bool) or not isinstance(ttl, (int, float)) or ttl < 60:
             raise ValueError("ttl_seconds must be at least 60")
-        ttl = min(ttl, 604800)
-        cache_file = self._cache_file(self.storage.root, args["scope"], conversation)
+        return kind, project, conversation, query, context, min(limit, MAX_RETRIEVE_LIMIT), min(ttl, 604800)
+
+    @staticmethod
+    def _load_retrieve_cache(cache_file: Path, ttl: int | float) -> dict[str, Any]:
         cache: dict[str, Any] = {"updated": 0, "delivered": {}}
         try:
             parsed = json.loads(cache_file.read_text(encoding="utf-8"))
@@ -209,41 +270,96 @@ class MemoryService:
                     cache = {"updated": parsed.get("updated", 0), "delivered": delivered}
         except (FileNotFoundError, ValueError, TypeError, OSError):
             pass
+        return cache
+
+    @staticmethod
+    def _candidate_score(
+        item: dict[str, Any],
+        concepts: set[str],
+        query_tokens: set[str],
+        context: dict[str, str],
+    ) -> int | None:
+        if item.get("status") != "active" or not isinstance(item.get("tier"), int) or not 1 <= item["tier"] <= 4:
+            return None
+        if context and any(
+            str(item.get("context", {}).get(key, "")).casefold() != value.casefold()
+            for key, value in context.items()
+        ):
+            return None
+        searchable = " ".join([
+            str(item.get("title", "")),
+            str(item.get("summary", "")),
+            str(item.get("content", "")),
+            *item.get("context", {}).values(),
+        ])
+        score = len(concepts.intersection(item.get("concept_ids", []))) * 10
+        score += len(query_tokens.intersection(tokens(searchable)))
+        score += sum(
+            2
+            for key, value in context.items()
+            if str(item.get("context", {}).get(key, "")).casefold() == str(value).casefold()
+        )
+        return score
+
+    def _retrieve_candidates(
+        self,
+        scope: dict[str, Any],
+        project: str | None,
+        query: str | None,
+        context: dict[str, str],
+        limit: int,
+    ) -> list[tuple[int, dict[str, Any]]]:
         search = " ".join([query or "", *[f"{key} {value}" for key, value in context.items()]])
         concepts = set(self.lexicon.match(search, project))
         query_tokens = set(tokens(search))
         candidates: list[tuple[int, dict[str, Any]]] = []
-        for item in self.storage.all_for(args["scope"]):
-            if item.get("status") != "active" or not isinstance(item.get("tier"), int) or not 1 <= item["tier"] <= 4:
-                continue
-            if context and any(str(item.get("context", {}).get(key, "")).casefold() != value.casefold() for key, value in context.items()):
-                continue
-            searchable = " ".join([str(item.get("title", "")), str(item.get("summary", "")), str(item.get("content", "")), *item.get("context", {}).values()])
-            score = len(concepts.intersection(item.get("concept_ids", []))) * 10
-            score += len(query_tokens.intersection(tokens(searchable)))
-            score += sum(2 for key, value in context.items() if str(item.get("context", {}).get(key, "")).casefold() == str(value).casefold())
-            if score > 0:
+        for item in self.storage.all_for(scope):
+            score = self._candidate_score(item, concepts, query_tokens, context)
+            if score is not None and score > 0:
                 candidates.append((score, item))
         candidates.sort(key=lambda pair: (-pair[0], str(pair[1].get("id", ""))))
-        candidates = candidates[:limit]
-        delivered: dict[str, Any] = cache["delivered"]
+        return candidates[:limit]
+
+    @staticmethod
+    def _select_deliveries(
+        candidates: list[tuple[int, dict[str, Any]]],
+        delivered: dict[str, Any],
+        force: bool,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
         selected: list[dict[str, Any]] = []
         already: list[dict[str, Any]] = []
-        force = bool(args.get("force_reload", False))
         for _, item in candidates:
             item_id, revision = item["id"], item["revision"]
             delivery_key = json.dumps({"scope": item.get("scope"), "id": item_id}, sort_keys=True, ensure_ascii=False)
-            is_same = delivered.get(delivery_key) == revision
-            if force or not is_same:
+            if force or delivered.get(delivery_key) != revision:
                 selected.append(item)
-            elif not force:
+            else:
                 already.append({"id": item_id, "revision": revision})
+        return selected, already
+
+    @staticmethod
+    def _update_delivery_cache(
+        delivered: dict[str, Any],
+        selected: list[dict[str, Any]],
+    ) -> dict[str, Any]:
         for item in selected:
-            delivery_key = json.dumps({"scope": item.get("scope"), "id": item["id"]}, sort_keys=True, ensure_ascii=False)
+            delivery_key = json.dumps(
+                {"scope": item.get("scope"), "id": item["id"]}, sort_keys=True, ensure_ascii=False
+            )
             delivered[delivery_key] = item["revision"]
-        # Keep the newest deterministic set, so an unbounded conversation cannot grow forever.
         if len(delivered) > MAX_CACHE_ENTRIES:
             delivered = {key: delivered[key] for key in sorted(delivered)[-MAX_CACHE_ENTRIES:]}
+        return delivered
+
+    def retrieve(self, args: dict[str, Any]) -> dict[str, Any]:
+        kind, project, conversation, query, context, limit, ttl = self._retrieve_options(args)
+        scope = {"type": kind} if kind == "global" else {"type": "project", "project_id": project}
+        cache_file = self._cache_file(self.storage.root, args["scope"], conversation)
+        cache = self._load_retrieve_cache(cache_file, ttl)
+        candidates = self._retrieve_candidates(scope, project, query, context, limit)
+        delivered: dict[str, Any] = cache["delivered"]
+        selected, already = self._select_deliveries(candidates, delivered, bool(args.get("force_reload", False)))
+        delivered = self._update_delivery_cache(delivered, selected)
         cache = {"updated": time.time(), "delivered": delivered}
         atomic_write(cache_file, json.dumps(cache, ensure_ascii=False, indent=2) + "\n")
         return {"memories": [{**_summary(item), "content": item["content"]} for item in selected], "already_delivered": already}
