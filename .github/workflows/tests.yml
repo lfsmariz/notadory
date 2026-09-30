@@ -1,0 +1,28 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    env:
+      UV_PYTHON: "3.10"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Install Python 3.10
+        run: uv python install 3.10
+      - name: Install dependencies
+        run: uv sync --locked --extra dev
+      - name: Run tests
+        run: uv run pytest
