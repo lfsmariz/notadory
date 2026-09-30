@@ -64,6 +64,16 @@ class MemoryService:
     ) -> dict[str, Any]:
         return self.lexicon.create_concept(concept_id, label, aliases, action_terms, object_terms, scope)
 
+    def append_concept_terms(
+        self,
+        concept_id: str,
+        aliases: list[str] | None = None,
+        action_terms: list[str] | None = None,
+        object_terms: list[str] | None = None,
+        scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self.lexicon.append_concept_terms(concept_id, aliases, action_terms, object_terms, scope)
+
     @staticmethod
     def _check_scope(scope: Any) -> tuple[str, str | None]:
         return validate_scope(scope)

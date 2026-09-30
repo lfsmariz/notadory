@@ -122,6 +122,66 @@ def test_create_concept_override_is_used_by_memory_and_retrieval(tmp_path):
     assert [item["id"] for item in result["memories"]] == ["mem-release"]
 
 
+def test_append_concept_terms_global_and_deduplicates(tmp_path):
+    service = setup_service(tmp_path)
+    result = service.append_concept_terms(
+        "validation",
+        aliases=["  checar   entrada", "checar entrada"],
+        action_terms=[" verificar "],
+        object_terms=[" dados  "],
+    )
+    assert result["status"] == "updated"
+    assert "checar entrada" in result["concept"]["aliases"]
+    assert "verificar" in result["concept"]["action_terms"]
+    assert "dados" in result["concept"]["object_terms"]
+
+    duplicate = service.append_concept_terms(
+        "validation", aliases=["checar entrada"], action_terms=["verificar"], object_terms=["dados"]
+    )
+    assert duplicate["status"] == "deduplicated"
+    assert service.lexicon.match("verificar dados") == ["validation"]
+
+
+def test_append_concept_terms_requires_existing_concept_and_terms(tmp_path):
+    service = setup_service(tmp_path)
+    with pytest.raises(ValueError, match="does not exist"):
+        service.append_concept_terms("missing", aliases=["new term"])
+    with pytest.raises(ValueError, match="at least one"):
+        service.append_concept_terms("validation")
+    with pytest.raises(ValueError):
+        service.append_concept_terms("validation", aliases=[])
+
+
+def test_append_project_terms_preserves_global_and_retrieves_old_memory(tmp_path):
+    service = setup_service(tmp_path)
+    global_before = json.loads((tmp_path / "lexicon" / "concepts.json").read_text(encoding="utf-8"))
+    service.create(
+        memory(
+            id="mem-project-old",
+            scope={"type": "project", "project_id": "alpha"},
+            title="Validation procedure",
+            summary="Project validation",
+            content="The old project validation procedure.",
+        )
+    )
+
+    result = service.append_concept_terms(
+        "validation", aliases=["checagem local"], scope={"type": "project", "project_id": "alpha"}
+    )
+    assert result["status"] == "updated"
+    assert "checagem local" in result["concept"]["aliases"]
+    assert json.loads((tmp_path / "lexicon" / "concepts.json").read_text(encoding="utf-8")) == global_before
+    assert service.lexicon.match("checagem local") == []
+    assert service.lexicon.match("checagem local", "alpha") == ["validation"]
+
+    retrieved = service.retrieve({
+        "scope": {"type": "project", "project_id": "alpha"},
+        "query": "checagem local",
+        "conversation_key": "append-project",
+    })
+    assert [item["id"] for item in retrieved["memories"]] == ["mem-project-old"]
+
+
 def test_create_concept_validation_and_scope_path_safety(tmp_path):
     service = setup_service(tmp_path)
     for concept_id in ("../escape", "Operation.Input", "a..b"):

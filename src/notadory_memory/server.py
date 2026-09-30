@@ -30,6 +30,17 @@ def create_concept(
     return service.create_concept(concept_id, label, aliases, action_terms, object_terms, scope)
 
 
+@server.tool(name="append_concept_terms", description="Append aliases or matching terms to an existing concept.", structured_output=True)
+def append_concept_terms(
+    concept_id: str,
+    aliases: list[str] | None = None,
+    action_terms: list[str] | None = None,
+    object_terms: list[str] | None = None,
+    scope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return service.append_concept_terms(concept_id, aliases, action_terms, object_terms, scope)
+
+
 @server.tool(name="create_memory", description="Create, deduplicate, or revise a memory.", structured_output=True)
 def create_memory(
     scope: dict[str, Any],
