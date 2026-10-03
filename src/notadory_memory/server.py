@@ -7,15 +7,20 @@ build the JSON schemas advertised to hosts.
 from __future__ import annotations
 
 import asyncio
+import os
 from typing import Any, Literal
 
 from mcp.server import MCPServer
 
+from .dashboard import DashboardServer
 from .service import MemoryService
 from .storage import MemoryStorage
+from .usage import UsageTracker, make_usage_middleware
 
 service = MemoryService(MemoryStorage())
 server = MCPServer(name="notadory-memory", version="1.0.0")
+usage_tracker = UsageTracker()
+server.middleware.append(make_usage_middleware(usage_tracker))
 
 
 @server.tool(name="create_concept", description="Create a durable global or project concept.", structured_output=True)
@@ -109,7 +114,15 @@ def reindex_archive(
 
 async def _run() -> None:
     service.init()
-    await server.run_stdio_async()
+    tracker_ready = usage_tracker.start()
+    dashboard = DashboardServer(usage_tracker) if tracker_ready and os.getenv("NOTADORY_DASHBOARD_ENABLED", "1") != "0" else None
+    if tracker_ready and dashboard is not None:
+        dashboard.start()
+    try:
+        await server.run_stdio_async()
+    finally:
+        if dashboard is not None:
+            dashboard.stop()
 
 
 def main() -> None:

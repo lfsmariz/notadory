@@ -43,6 +43,36 @@ uv run python -m notadory_memory.server
 Ele usa stdio para o protocolo MCP. Nunca escreva logs ou mensagens de
 diagnóstico em stdout; esse canal pertence ao protocolo.
 
+### Dashboard e estimativa de tokens
+
+Ao iniciar o servidor normalmente (`uv run notadory-memory-mcp`), ele abre um
+dashboard somente em `127.0.0.1` (por padrão, porta `8765`) e anuncia a URL
+somente em stderr. Abra `http://127.0.0.1:8765/` no navegador enquanto o MCP
+estiver ligado (ou a URL anunciada, se a porta padrão estiver ocupada).
+Use as ferramentas MCP normalmente para que cada
+`tools/call` seja contado; `tools/list`, inicialização e consultas ao dashboard
+não contam. A página atualiza os totais a cada segundo. A API somente leitura
+em `GET /api/stats` expõe o total da sessão e o total por ferramenta, incluindo
+texto de erros retornados. Texto e JSON estruturado duplicados não são contados
+duas vezes. O contador é reiniciado a cada
+processo/sessão e não guarda argumentos nem conteúdo.
+
+Os totais são estimativas usando `tiktoken` com `cl100k_base` e contam somente
+texto retornado (não são faturamento de nenhum provedor). A primeira
+inicialização pode baixar o vocabulário; para ambientes offline, pré-aqueça o
+cache e configure `TIKTOKEN_CACHE_DIR` para um diretório persistente. Opções:
+
+```sh
+NOTADORY_DASHBOARD_PORT=0 uv run notadory-memory-mcp  # porta efêmera
+NOTADORY_DASHBOARD_ENABLED=0 uv run notadory-memory-mcp  # sem servidor web
+NOTADORY_DASHBOARD_OPEN=1 uv run notadory-memory-mcp  # abrir navegador
+curl http://127.0.0.1:8765/api/stats
+```
+
+Falha ao carregar o tokenizer ou ao abrir a porta não interrompe as ferramentas
+MCP; nesse caso o dashboard não é anunciado. O dashboard não tem CORS e
+rejeita hosts diferentes de `127.0.0.1`.
+
 ## Dados locais
 
 Por padrão, os dados ficam em `memory-data/` relativo ao diretório de execução.
