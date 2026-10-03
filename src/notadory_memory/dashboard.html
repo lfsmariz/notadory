@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Notadory · Output usage</title>
+  <style>
+    :root {
+      --ink: #f5f6fb;
+      --muted: #a9afc2;
+      --faint: #727a91;
+      --panel: rgba(25, 29, 45, .78);
+      --panel-solid: #1a1e2e;
+      --line: rgba(255, 255, 255, .1);
+      --accent: #b8f36b;
+      --accent-strong: #d6ff91;
+      --accent-ink: #16210c;
+      --blue: #7dc9ff;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .3);
+    }
+
+    * { box-sizing: border-box; }
+    html { min-width: 320px; background: #10131f; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      color: var(--ink);
+      background: #10131f;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      content: "";
+      background:
+        radial-gradient(circle at 8% 7%, rgba(184,243,107,.13), transparent 27rem),
+        radial-gradient(circle at 92% 18%, rgba(125,201,255,.11), transparent 25rem),
+        linear-gradient(140deg, transparent 35%, rgba(255,255,255,.025) 35.1%, transparent 35.3%);
+      pointer-events: none;
+    }
+    .wrap { width: min(1120px, calc(100% - 40px)); margin: 0 auto; padding: 42px 0 56px; }
+    header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 40px; }
+    .eyebrow { display: flex; align-items: center; gap: 10px; color: var(--accent); font-size: 12px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .mark { display: inline-grid; width: 26px; height: 26px; place-items: center; border-radius: 8px; color: var(--accent-ink); background: var(--accent); font-size: 13px; font-weight: 900; }
+    h1, h2, p { margin: 0; }
+    h1 { max-width: 680px; margin-top: 13px; font-size: clamp(2rem, 5vw, 4.2rem); font-weight: 720; letter-spacing: -.065em; line-height: .98; }
+    .intro { max-width: 560px; margin-top: 17px; color: var(--muted); font-size: 16px; }
+    .connection { display: inline-flex; align-items: center; flex: none; gap: 9px; margin-top: 3px; padding: 8px 13px; border: 1px solid var(--line); border-radius: 99px; color: var(--muted); background: rgba(255,255,255,.035); font-size: 12px; font-weight: 700; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 4px rgba(114,122,145,.12); }
+    .connection.live .dot { background: var(--accent); box-shadow: 0 0 0 4px rgba(184,243,107,.13); }
+    .connection.offline .dot { background: #ff8d7e; box-shadow: 0 0 0 4px rgba(255,141,126,.12); }
+    .dashboard { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+    .card { border: 1px solid var(--line); border-radius: 20px; background: var(--panel); box-shadow: var(--shadow); backdrop-filter: blur(14px); }
+    .hero { position: relative; min-height: 275px; padding: 29px 31px; overflow: hidden; background: linear-gradient(135deg, rgba(184,243,107,.16), rgba(25,29,45,.8) 60%); }
+    .hero::after { position: absolute; right: -45px; bottom: -90px; width: 280px; height: 280px; border: 1px solid rgba(184,243,107,.23); border-radius: 50%; content: ""; box-shadow: 0 0 0 20px rgba(184,243,107,.025), 0 0 0 46px rgba(184,243,107,.02); pointer-events: none; }
+    .label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .number { position: relative; z-index: 1; margin-top: 19px; color: var(--accent-strong); font-size: clamp(3.7rem, 10vw, 7.4rem); font-variant-numeric: tabular-nums; font-weight: 760; letter-spacing: -.09em; line-height: .88; }
+    .unit { margin-top: 17px; color: var(--ink); font-size: 16px; font-weight: 650; }
+    .fine { margin-top: 5px; color: var(--muted); font-size: 12px; }
+    .side-card { padding: 25px; }
+    .card-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 21px; }
+    h2 { font-size: 17px; font-weight: 720; letter-spacing: -.02em; }
+    .tag { padding: 4px 8px; border-radius: 5px; color: var(--blue); background: rgba(125,201,255,.1); font-size: 11px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .stat-value { margin-top: 6px; font-size: 25px; font-variant-numeric: tabular-nums; font-weight: 720; letter-spacing: -.04em; }
+    .stat-caption { color: var(--muted); font-size: 12px; }
+    .details { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .details .card { padding: 25px; }
+    .tool-list { display: grid; gap: 13px; margin: 0; padding: 0; list-style: none; }
+    .tool-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 16px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+    .tool-row:last-child { padding-bottom: 0; border-bottom: 0; }
+    .tool-name { overflow: hidden; color: var(--ink); font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+    .tool-meta { color: var(--muted); font-size: 12px; white-space: nowrap; }
+    .tool-tokens { min-width: 74px; text-align: right; color: var(--accent-strong); font-size: 14px; font-variant-numeric: tabular-nums; font-weight: 750; }
+    .empty { color: var(--muted); font-size: 14px; }
+    .last-call { min-height: 133px; display: flex; flex-direction: column; justify-content: space-between; }
+    .last-tool { margin-top: 9px; overflow: hidden; font-size: 23px; font-weight: 700; letter-spacing: -.04em; text-overflow: ellipsis; white-space: nowrap; }
+    .last-meta { color: var(--muted); font-size: 13px; }
+    footer { margin-top: 30px; color: var(--faint); font-size: 12px; }
+    .status-message { min-height: 18px; margin-top: 8px; color: #ffb9ad; font-size: 12px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 740px) {
+      .wrap { width: min(100% - 28px, 560px); padding-top: 25px; }
+      header { display: block; margin-bottom: 27px; }
+      .connection { margin-top: 20px; }
+      .dashboard, .details { grid-template-columns: 1fr; }
+      .details { gap: 14px; }
+      .hero { min-height: 235px; padding: 25px; }
+      .side-card, .details .card { padding: 22px; }
+    }
+    @media (prefers-reduced-motion: no-preference) {
+      .card { animation: rise .55s both; }
+      .side-card { animation-delay: .08s; }
+      .details { animation-delay: .15s; }
+      @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    }
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <header>
+      <div>
+        <div class="eyebrow"><span class="mark" aria-hidden="true">N</span> Notadory / usage</div>
+        <h1>Output tokens,<br>this session.</h1>
+        <p class="intro">Track text returned by Notadory tools. Totals reset when the MCP server restarts.</p>
+      </div>
+      <div id="connection" class="connection" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="connection-label">Connecting</span></div>
+    </header>
+
+    <section class="dashboard" aria-label="Token usage overview">
+      <article class="card hero">
+        <div class="label">Total output</div>
+        <div id="total-tokens" class="number" aria-live="polite">—</div>
+        <div class="unit">estimated tokens</div>
+        <div class="fine">Output text from MCP calls only · cl100k_base</div>
+      </article>
+      <article class="card side-card">
+        <div class="card-heading"><h2>This session</h2><span class="tag">Live</span></div>
+        <div class="stats">
+          <div><div class="label">Calls</div><div id="total-calls" class="stat-value">—</div><div class="stat-caption">MCP tool calls</div></div>
+          <div><div class="label">Started</div><div id="started-at" class="stat-value">—</div><div id="started-date" class="stat-caption">Waiting for session</div></div>
+        </div>
+        <div class="status-message" id="status-message" role="status" aria-live="polite"></div>
+      </article>
+
+      <div class="details">
+        <article class="card">
+          <div class="card-heading"><h2>By tool</h2><span id="tool-count" class="tag">0 tools</span></div>
+          <ul id="tool-list" class="tool-list" aria-live="polite"><li class="empty">Loading tool activity…</li></ul>
+        </article>
+        <article class="card last-call">
+          <div class="card-heading"><h2>Last call</h2><span class="tag">Most recent</span></div>
+          <div id="last-empty" class="empty">No calls recorded yet.</div>
+          <div id="last-content" hidden>
+            <div id="last-tool" class="last-tool"></div>
+            <div><span id="last-tokens" class="last-meta"></span><span class="last-meta"> · </span><time id="last-at" class="last-meta"></time></div>
+          </div>
+        </article>
+      </div>
+    </section>
+    <footer>Estimates reflect this running process, not provider billing totals or input tokens. Session <span id="session-id">—</span></footer>
+  </main>
+
+  <script>
+    (() => {
+      const $ = (id) => document.getElementById(id);
+      const number = new Intl.NumberFormat();
+      const date = (value, options) => {
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? 'Unknown' : new Intl.DateTimeFormat(undefined, options).format(parsed);
+      };
+      let hasData = false;
+      let request;
+
+      function setConnection(connected, label) {
+        const status = $('connection');
+        status.classList.toggle('live', connected);
+        status.classList.toggle('offline', !connected);
+        $('connection-label').textContent = label;
+      }
+
+      function render(data) {
+        hasData = true;
+        $('total-tokens').textContent = number.format(data.total_tokens);
+        $('total-calls').textContent = number.format(data.total_calls);
+        $('started-at').textContent = date(data.started_at, { hour: 'numeric', minute: '2-digit' });
+        $('started-date').textContent = date(data.started_at, { month: 'short', day: 'numeric', year: 'numeric' });
+        $('session-id').textContent = data.session_id || 'Unknown';
+        const tools = Array.isArray(data.tools) ? data.tools : [];
+        $('tool-count').textContent = `${tools.length} ${tools.length === 1 ? 'tool' : 'tools'}`;
+        const list = $('tool-list');
+        list.replaceChildren();
+        if (!tools.length) {
+          const empty = document.createElement('li');
+          empty.className = 'empty';
+          empty.textContent = 'No tool activity yet.';
+          list.appendChild(empty);
+        } else {
+          tools.forEach((tool) => {
+            const item = document.createElement('li');
+            item.className = 'tool-row';
+            const name = document.createElement('span'); name.className = 'tool-name'; name.textContent = tool.name;
+            const calls = document.createElement('span'); calls.className = 'tool-meta'; calls.textContent = `${number.format(tool.calls)} calls`;
+            const tokens = document.createElement('span'); tokens.className = 'tool-tokens'; tokens.textContent = number.format(tool.tokens);
+            item.append(name, calls, tokens); list.appendChild(item);
+          });
+        }
+        const last = data.last_call;
+        $('last-empty').hidden = Boolean(last);
+        $('last-content').hidden = !last;
+        if (last) {
+          $('last-tool').textContent = last.tool;
+          $('last-tokens').textContent = `${number.format(last.tokens)} tokens`;
+          $('last-at').textContent = date(last.at, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+          $('last-at').dateTime = last.at;
+        }
+        $('status-message').textContent = '';
+      }
+
+      async function poll() {
+        if (request) request.abort();
+        request = new AbortController();
+        try {
+          const response = await fetch('/api/stats', { cache: 'no-store', signal: request.signal });
+          if (!response.ok) throw new Error('Request failed');
+          render(await response.json());
+          setConnection(true, 'Live · updating');
+        } catch (error) {
+          if (error.name === 'AbortError') return;
+          setConnection(false, hasData ? 'Disconnected · retrying' : 'Waiting for server');
+          $('status-message').textContent = hasData ? 'Could not refresh. Showing the last received totals.' : 'Unable to reach the usage endpoint. Retrying…';
+        }
+      }
+      poll();
+      window.setInterval(poll, 1000);
+    })();
+  </script>
+</body>
+</html>
